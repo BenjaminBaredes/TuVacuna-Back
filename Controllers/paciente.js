@@ -5,8 +5,10 @@ import { query } from "../db.js";
  * @param {import('express').Response} res
  */
 
+const COLUMNAS = "id_paciente, dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, id_grupofamiliar";
+
 const getPacientes = async (_, res) => {
-    const result = await query("SELECT * FROM paciente");
+    const result = await query(`SELECT ${COLUMNAS} FROM paciente`);
     res.json(result.rows);
 };
 
@@ -16,7 +18,7 @@ const getPacientes = async (_, res) => {
  */
 const getPaciente = async (req, res) => {
     const result = await query(
-        "SELECT * FROM paciente WHERE id_paciente = $1",
+        `SELECT ${COLUMNAS} FROM paciente WHERE id_paciente = $1`,
         [req.params.id]
     );
 
