@@ -56,35 +56,50 @@ const registrarseMedico = async (req, res) => {
     }
 };
 
-const loginPaciente = async (req, res) => {
-    const { mail, password } = req.body;
+const registro = (req, res) => {
+    const { rol } = req.body;
 
-    if (!mail || !password) {
-        return res.status(400).json({ mensaje: "Mail y contraseña son obligatorios" });
+    if (rol === "paciente") return registrarsePaciente(req, res);
+    if (rol === "medico") return registrarseMedico(req, res);
+
+    res.status(400).json({ mensaje: "El rol debe ser 'paciente' o 'medico'" });
+};
+
+const login = async (req, res) => {
+    const { mail, password, rol } = req.body;
+
+    if (!mail || !password || !rol) {
+        return res.status(400).json({ mensaje: "Mail, contraseña y rol son obligatorios" });
+    }
+
+    const tablas = {
+        paciente: { tabla: "paciente", id: "id_paciente" },
+        medico: { tabla: "medico", id: "id_medico" },
+    };
+    const config = tablas[rol];
+
+    if (!config) {
+        return res.status(400).json({ mensaje: "El rol debe ser 'paciente' o 'medico'" });
     }
 
     try {
-        // 1. Buscar el paciente por mail
         const result = await query(
-            "SELECT id_paciente, password FROM paciente WHERE mail = $1",
+            `SELECT ${config.id} AS id, password FROM ${config.tabla} WHERE mail = $1`,
             [mail]
         );
-        const paciente = result.rows[0];
+        const usuario = result.rows[0];
 
-        // 2. Si no existe, o no tiene contraseña (como los de prueba), error
-        if (!paciente || !paciente.password) {
+        if (!usuario || !usuario.password) {
             return res.status(401).json({ mensaje: "Mail o contraseña incorrectos" });
         }
 
-        // 3. Comparar la contraseña con el hash guardado
-        const coincide = await bcrypt.compare(password, paciente.password);
+        const coincide = await bcrypt.compare(password, usuario.password);
         if (!coincide) {
             return res.status(401).json({ mensaje: "Mail o contraseña incorrectos" });
         }
 
-        // 4. Crear el token con el id y el rol
         const token = jwt.sign(
-            { id: paciente.id_paciente, rol: "paciente" },
+            { id: usuario.id, rol },
             process.env.JWT_SECRET,
             { expiresIn: "2h" }
         );
@@ -96,4 +111,4 @@ const loginPaciente = async (req, res) => {
     }
 };
 
-export default { registrarsePaciente, registrarseMedico, loginPaciente };
+export default { registro, login };

@@ -4,6 +4,9 @@ const port = 4000;
 
 import pacientes from "./Controllers/paciente.js";
 import iniciosesion from "./Controllers/iniciosesion.js";
+import usuarios from "./Controllers/usuarios.js";
+import { verificarToken } from "./middleware/auth.js";
+import carnet from "./Controllers/carnet.js";
 
 app.use(express.json());
 
@@ -14,9 +17,12 @@ app.get("/", (_, res) => {
 app.get("/pacientes", pacientes.getPacientes);
 app.get("/pacientes/:id", pacientes.getPaciente);
 
-app.post("/pacientes/registrarse", iniciosesion.registrarsePaciente);
-app.post("/medicos/registrarse", iniciosesion.registrarseMedico);
-app.post("/pacientes/login", iniciosesion.loginPaciente);
+app.post("/api/auth/registro", iniciosesion.registro);
+app.post("/api/auth/login", iniciosesion.login);
+
+app.get("/api/usuario/me", verificarToken, usuarios.getMe);
+
+app.get("/api/carnet", verificarToken, carnet.getCarnet);
 
 const server = app.listen(port, () => {
     console.log(`TuVacuna API listening at http://localhost:${port}`);
