@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 const app = express();
 const port = 4000;
 
@@ -10,6 +11,7 @@ import carnet from "./Controllers/carnet.js";
 import vacunas from "./Controllers/vacunas.js";
 
 
+app.use(cors());
 app.use(express.json());
 
 app.get("/", (_, res) => {
@@ -28,9 +30,11 @@ app.get("/api/carnet", verificarToken, carnet.getCarnet);
 app.post("/api/carnet/dosis", verificarToken, carnet.postDosis);
 
 app.get("/api/vacunas", verificarToken, vacunas.getVacunas);
-  
-const server = app.listen(port, () => {
-    console.log(`TuVacuna API listening at http://localhost:${port}`);
+
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+      console.log(`TuVacuna API listening at http://localhost:${port}`);
   });
-  
-  export { app, server };
+}
+
+export default app;
