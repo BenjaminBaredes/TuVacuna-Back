@@ -3,7 +3,7 @@ import cors from "cors";
 const app = express();
 const port = 4000;
 
-import pacientes from "./Controllers/paciente.js";
+//import pacientes from "./Controllers/paciente.js";
 import iniciosesion from "./Controllers/iniciosesion.js";
 import usuarios from "./Controllers/usuarios.js";
 import { verificarToken } from "./middleware/auth.js";
@@ -18,8 +18,8 @@ app.get("/", (_, res) => {
   res.send("TuVacuna API working!");
 });
 
-app.get("/pacientes", pacientes.getPacientes);
-app.get("/pacientes/:id", pacientes.getPaciente);
+//app.get("/pacientes", pacientes.getPacientes);
+//app.get("/pacientes/:id", pacientes.getPaciente);
 
 app.post("/api/auth/registro", iniciosesion.registro);
 app.post("/api/auth/login", iniciosesion.login);
