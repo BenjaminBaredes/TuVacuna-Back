@@ -7,6 +7,8 @@ import iniciosesion from "./Controllers/iniciosesion.js";
 import usuarios from "./Controllers/usuarios.js";
 import { verificarToken } from "./middleware/auth.js";
 import carnet from "./Controllers/carnet.js";
+import vacunas from "./Controllers/vacunas.js";
+
 
 app.use(express.json());
 
@@ -23,7 +25,10 @@ app.post("/api/auth/login", iniciosesion.login);
 app.get("/api/usuario/me", verificarToken, usuarios.getMe);
 
 app.get("/api/carnet", verificarToken, carnet.getCarnet);
+app.post("/api/carnet/dosis", verificarToken, carnet.postDosis);
 
+app.get("/api/vacunas", verificarToken, vacunas.getVacunas);
+  
 const server = app.listen(port, () => {
     console.log(`TuVacuna API listening at http://localhost:${port}`);
   });
