@@ -3,26 +3,64 @@ import jwt from "jsonwebtoken";
 import { query } from "../db.js";
 
 const registrarsePaciente = async (req, res) => {
-    const { dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password } = req.body;
+    const { dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password, comorbilidades } = req.body;
 
     if (!dni || !nombre || !apellido || !fecha_de_nacimiento || !mail || !password) {
         return res.status(400).json({ mensaje: "Faltan datos obligatorios" });
+    }
+
+    // Las comorbilidades son opcionales. Si vienen, tienen que ser una lista de IDs numéricos.
+    let idsComorbilidades = [];
+    if (comorbilidades !== undefined) {
+        if (!Array.isArray(comorbilidades)) {
+            return res.status(400).json({ mensaje: "comorbilidades debe ser una lista de IDs" });
+        }
+        for (const idComorbilidad of comorbilidades) {
+            if (!Number.isInteger(idComorbilidad)) {
+                return res.status(400).json({ mensaje: "Cada comorbilidad debe ser un ID numérico" });
+            }
+        }
+        idsComorbilidades = comorbilidades;
     }
 
     try {
         const hash = await bcrypt.hash(password, 10);
 
         const result = await query(
-            `INSERT INTO paciente (dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             RETURNING id_paciente, dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo`,
-            [dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, hash]
+            `WITH nuevo AS (
+                INSERT INTO paciente (dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id_paciente, nombre
+            ),
+            carnet_nuevo AS (
+                INSERT INTO carnet (id_paciente)
+                SELECT id_paciente FROM nuevo
+            ),
+            comorbilidades_nuevas AS (
+                INSERT INTO tiene_comorbilidad (id_paciente, id_comorbilidad)
+                SELECT DISTINCT n.id_paciente, c
+                FROM nuevo n, unnest($9::int[]) AS c
+            )
+            SELECT id_paciente, nombre FROM nuevo`,
+            [dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, hash, idsComorbilidades]
         );
 
-        res.status(201).json(result.rows[0]);
+        const paciente = result.rows[0];
+
+        const token = jwt.sign(
+            { id: paciente.id_paciente, rol: "paciente" },
+            process.env.JWT_SECRET,
+            { expiresIn: "2h" }
+        );
+
+        res.status(201).json({ token, usuario: { nombre: paciente.nombre } });
     } catch (err) {
         if (err.code === "23505") {
             return res.status(409).json({ mensaje: "Ya existe un paciente con ese DNI o mail" });
+        }
+        // 23503: se mandó un ID de comorbilidad que no existe
+        if (err.code === "23503") {
+            return res.status(400).json({ mensaje: "Alguna de las comorbilidades no existe" });
         }
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
