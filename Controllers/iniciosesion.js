@@ -68,23 +68,35 @@ const registrarsePaciente = async (req, res) => {
 };
 
 const registrarseMedico = async (req, res) => {
-    const { dni, nombre, apellido, matricula, mail, password } = req.body;
+    const { dni, nombre, apellido, matricula, especialidad, institucion, mail, password } = req.body;
 
-    if (!dni || !nombre || !apellido || !matricula || !mail || !password) {
+    // institucion no está en la validación: es opcional
+    if (!dni || !nombre || !apellido || !matricula || !especialidad || !mail || !password) {
         return res.status(400).json({ mensaje: "Faltan datos obligatorios" });
     }
+
+    // Si no viene, o viene vacía o con solo espacios, se guarda como NULL
+    const institucionLimpia = String(institucion ?? "").trim() || "Particular";
 
     try {
         const hash = await bcrypt.hash(password, 10);
 
         const result = await query(
-            `INSERT INTO medico (dni, nombre, apellido, matricula, mail, password)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING id_medico, dni, nombre, apellido, matricula, mail`,
-            [dni, nombre, apellido, matricula, mail, hash]
+            `INSERT INTO medico (dni, nombre, apellido, matricula, especialidad, institucion, mail, password)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id_medico, nombre`,
+            [dni, nombre, apellido, matricula, especialidad.trim(), institucionLimpia, mail, hash]
         );
 
-        res.status(201).json(result.rows[0]);
+        const medico = result.rows[0];
+
+        const token = jwt.sign(
+            { id: medico.id_medico, rol: "medico" },
+            process.env.JWT_SECRET,
+            { expiresIn: "2h" }
+        );
+
+        res.status(201).json({ token, usuario: { nombre: medico.nombre } });
     } catch (err) {
         if (err.code === "23505") {
             return res.status(409).json({ mensaje: "Ya existe un médico con ese DNI, mail o matrícula" });

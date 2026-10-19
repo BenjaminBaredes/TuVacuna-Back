@@ -10,6 +10,7 @@ import { verificarToken } from "./middleware/auth.js";
 import carnet from "./Controllers/carnet.js";
 import vacunas from "./Controllers/vacunas.js";
 import comorbilidades from "./Controllers/comorbilidades.js";
+import medicos from "./Controllers/medicos.js";
 
 app.use(cors());
 app.use(express.json());
@@ -32,6 +33,8 @@ app.post("/api/carnet/dosis", verificarToken, carnet.postDosis);
 app.get("/api/vacunas", verificarToken, vacunas.getVacunas);
 
 app.get("/api/comorbilidades", comorbilidades.getComorbilidades);
+
+app.get("/api/medicos", verificarToken, medicos.buscarMedicos);
  
 if (!process.env.VERCEL) {
   app.listen(port, () => {
