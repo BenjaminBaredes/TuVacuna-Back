@@ -11,6 +11,7 @@ import carnet from "./Controllers/carnet.js";
 import vacunas from "./Controllers/vacunas.js";
 import comorbilidades from "./Controllers/comorbilidades.js";
 import medicos from "./Controllers/medicos.js";
+import solicitudes from "./Controllers/solicitudes.js";
 
 app.use(cors());
 app.use(express.json());
@@ -36,6 +37,9 @@ app.get("/api/comorbilidades", comorbilidades.getComorbilidades);
 
 app.get("/api/medicos", verificarToken, medicos.buscarMedicos);
  
+app.post("/api/medicos/:id/solicitud", verificarToken, solicitudes.enviarSolicitud);
+app.get("/api/medico/solicitudes", verificarToken, solicitudes.getSolicitudesRecibidas);
+
 if (!process.env.VERCEL) {
   app.listen(port, () => {
       console.log(`TuVacuna API listening at http://localhost:${port}`);
