@@ -48,5 +48,28 @@ const buscarMedicos = async (req, res) => {
         res.status(500).json({ mensaje: "Error interno" });
     }
 };
+const getMPacientes = async (req, res) => {
+    const { id, rol } = req.usuario;
 
-export default { buscarMedicos };
+    if (rol !== "medico") {
+        return res.status(403).json({ mensaje: "Solo los médicos tienen pacientes" });
+    }
+
+    try {
+        // Solo los pacientes que ya aceptaron
+        const result = await query(
+            `SELECT p.id_paciente, p.nombre, p.apellido, p.dni,
+                    TO_CHAR(p.fecha_de_nacimiento, 'YYYY-MM-DD') AS fecha_de_nacimiento
+             FROM tiene_medico tm
+             JOIN paciente p ON p.id_paciente = tm.id_paciente
+             WHERE tm.id_medico = $1 AND tm.estado = 'aceptado'
+             ORDER BY p.apellido, p.nombre`,
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+export default { buscarMedicos, getMPacientes };
