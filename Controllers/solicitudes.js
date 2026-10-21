@@ -65,5 +65,69 @@ const getSolicitudesRecibidas = async (req, res) => {
         res.status(500).json({ mensaje: "Error interno" });
     }
 };
+// El médico acepta una solicitud pendiente
+const aceptarSolicitud = async (req, res) => {
+    const { id, rol } = req.usuario;
 
-export default { enviarSolicitud, getSolicitudesRecibidas };
+    if (rol !== "medico") {
+        return res.status(403).json({ mensaje: "Solo los médicos pueden aceptar solicitudes" });
+    }
+
+    const idSolicitud = Number(req.params.id);
+    if (!Number.isInteger(idSolicitud)) {
+        return res.status(400).json({ mensaje: "ID de solicitud inválido" });
+    }
+
+    try {
+        const result = await query(
+            `UPDATE tiene_medico
+             SET estado = 'aceptado'
+             WHERE id = $1 AND id_medico = $2 AND estado = 'pendiente'
+             RETURNING id`,
+            [idSolicitud, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ mensaje: "Solicitud no encontrada" });
+        }
+
+        res.json({ id: result.rows[0].id, estado: "aceptado" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+// El médico rechaza una solicitud pendiente (se borra)
+const rechazarSolicitud = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "medico") {
+        return res.status(403).json({ mensaje: "Solo los médicos pueden rechazar solicitudes" });
+    }
+
+    const idSolicitud = Number(req.params.id);
+    if (!Number.isInteger(idSolicitud)) {
+        return res.status(400).json({ mensaje: "ID de solicitud inválido" });
+    }
+
+    try {
+        const result = await query(
+            `DELETE FROM tiene_medico
+             WHERE id = $1 AND id_medico = $2 AND estado = 'pendiente'
+             RETURNING id`,
+            [idSolicitud, id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ mensaje: "Solicitud no encontrada" });
+        }
+
+        res.json({ id: result.rows[0].id, estado: "rechazada" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+export default { enviarSolicitud, getSolicitudesRecibidas, aceptarSolicitud, rechazarSolicitud };

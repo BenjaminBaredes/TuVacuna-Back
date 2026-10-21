@@ -39,6 +39,8 @@ app.get("/api/medicos", verificarToken, medicos.buscarMedicos);
  
 app.post("/api/medicos/:id/solicitud", verificarToken, solicitudes.enviarSolicitud);
 app.get("/api/medico/solicitudes", verificarToken, solicitudes.getSolicitudesRecibidas);
+app.post("/api/medico/solicitudes/:id/aceptar", verificarToken, solicitudes.aceptarSolicitud);
+app.post("/api/medico/solicitudes/:id/rechazar", verificarToken, solicitudes.rechazarSolicitud);
 
 if (!process.env.VERCEL) {
   app.listen(port, () => {
