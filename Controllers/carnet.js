@@ -1,5 +1,41 @@
 import { query } from "../db.js";
 
+// Función auxiliar: arma el carnet de un paciente, agrupado por año.
+// No comprueba permisos: cada endpoint que la usa lo hace antes.
+const armarCarnet = async (idPaciente) => {
+    const result = await query(
+        `SELECT po.id, v.nombre, 'aplicada' AS estado,
+                TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion,
+                po.lote, po.marca, po.lugar
+         FROM carnet c
+         JOIN posee po ON po.id_carnet = c.id_carnet
+         JOIN vacunas v ON v.id_vacuna = po.id_vacuna
+         WHERE c.id_paciente = $1
+         ORDER BY po.fecha_de_aplicacion DESC NULLS LAST`,
+        [idPaciente]
+    );
+
+    const secciones = [];
+
+    for (const fila of result.rows) {
+        let anio = "Sin fecha";
+        if (fila.fecha_de_aplicacion) {
+            anio = fila.fecha_de_aplicacion.slice(0, 4);
+        }
+
+        const ultima = secciones[secciones.length - 1];
+
+        if (!ultima || ultima.grupo !== anio) {
+            secciones.push({ grupo: anio, esPendiente: false, dosis: [fila] });
+        } else {
+            ultima.dosis.push(fila);
+        }
+    }
+
+    return secciones;
+};
+
+// El paciente ve su propio carnet
 const getCarnet = async (req, res) => {
     const { id, rol } = req.usuario;
 
@@ -8,41 +44,38 @@ const getCarnet = async (req, res) => {
     }
 
     try {
-        const result = await query(
-            `SELECT po.id, v.nombre,
-                    TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion,
-                    po.lote, po.marca, po.lugar
-             FROM carnet c
-             JOIN posee po ON po.id_carnet = c.id_carnet
-             JOIN vacunas v ON v.id_vacuna = po.id_vacuna
-             WHERE c.id_paciente = $1
-             ORDER BY po.fecha_de_aplicacion DESC NULLS LAST`,
-            [id]
+        res.json(await armarCarnet(id));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+// El médico ve el carnet de un paciente que ya aceptó su solicitud
+const getCarnetDePaciente = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "medico") {
+        return res.status(403).json({ mensaje: "No autorizado" });
+    }
+
+    const idPaciente = Number(req.params.idPaciente);
+    if (!Number.isInteger(idPaciente)) {
+        return res.status(400).json({ mensaje: "ID de paciente inválido" });
+    }
+
+    try {
+        const vinculo = await query(
+            `SELECT 1 FROM tiene_medico
+             WHERE id_paciente = $1 AND id_medico = $2 AND estado = 'aceptado'`,
+            [idPaciente, id]
         );
 
-        // Agrupar por año (las filas ya vienen ordenadas por fecha)
-        const secciones = [];
-
-        for (const fila of result.rows) {
-            // 1. Sacar el año de la fecha
-            let anio = "Sin fecha";
-            if (fila.fecha_de_aplicacion) {
-                anio = fila.fecha_de_aplicacion.slice(0, 4);
-            }
-
-            // 2. Mirar la última sección creada
-            const ultima = secciones[secciones.length - 1];
-
-            // 3. Si no hay sección o es de otro año, abrir una nueva
-            if (!ultima || ultima.grupo !== anio) {
-                secciones.push({ grupo: anio, esPendiente: false, dosis: [fila] });
-            } else {
-                // 4. Si es el mismo año, agregar la dosis a esa sección
-                ultima.dosis.push(fila);
-            }
+        if (vinculo.rows.length === 0) {
+            return res.status(404).json({ mensaje: "Paciente no encontrado" });
         }
 
-        res.json(secciones);
+        res.json(await armarCarnet(idPaciente));
     } catch (err) {
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
@@ -137,4 +170,4 @@ const postDosis = async (req, res) => {
     }
 };
 
-export default { getCarnet, postDosis };
+export default { getCarnet, getCarnetDePaciente, postDosis };
