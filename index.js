@@ -12,6 +12,7 @@ import vacunas from "./Controllers/vacunas.js";
 import comorbilidades from "./Controllers/comorbilidades.js";
 import medicos from "./Controllers/medicos.js";
 import solicitudes from "./Controllers/solicitudes.js";
+import perfil from "./Controllers/perfil.js";
 
 app.use(cors());
 app.use(express.json());
@@ -29,15 +30,23 @@ app.post("/api/auth/login", iniciosesion.login);
 app.get("/api/usuario/me", verificarToken, usuarios.getMe);
 
 app.get("/api/carnet", verificarToken, carnet.getCarnet);
+app.get("/api/carnet/:idPaciente", verificarToken, carnet.getCarnetDePaciente);
 app.post("/api/carnet/dosis", verificarToken, carnet.postDosis);
 
 app.get("/api/vacunas", verificarToken, vacunas.getVacunas);
-
 app.get("/api/comorbilidades", comorbilidades.getComorbilidades);
 
+app.get("/api/perfil/comorbilidades", verificarToken, perfil.getMisComorbilidades);
+app.put("/api/perfil/comorbilidades", verificarToken, perfil.putMisComorbilidades);
+app.get("/api/perfil/comorbilidades/:idPaciente", verificarToken, perfil.getComorbilidadesDePaciente);
+
+app.get("/api/perfil/medicos", verificarToken, solicitudes.getMisMedicos);
+app.delete("/api/perfil/medicos/:id", verificarToken, solicitudes.quitarMedico);
+
 app.get("/api/medicos", verificarToken, medicos.buscarMedicos);
- 
 app.post("/api/medicos/:id/solicitud", verificarToken, solicitudes.enviarSolicitud);
+
+app.get("/api/medico/pacientes", verificarToken, medicos.getMisPacientes);
 app.get("/api/medico/solicitudes", verificarToken, solicitudes.getSolicitudesRecibidas);
 app.post("/api/medico/solicitudes/:id/aceptar", verificarToken, solicitudes.aceptarSolicitud);
 app.post("/api/medico/solicitudes/:id/rechazar", verificarToken, solicitudes.rechazarSolicitud);
