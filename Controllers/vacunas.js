@@ -3,7 +3,9 @@ import { query } from "../db.js";
 const getVacunas = async (_, res) => {
     try {
         const result = await query(
-            "SELECT id_vacuna, nombre FROM vacunas WHERE nombre IS NOT NULL ORDER BY nombre"
+            `SELECT id_vacuna, nombre, dosis, en_calendario
+             FROM vacunas
+             ORDER BY en_calendario DESC, nombre, id_vacuna`
         );
         res.json(result.rows);
     } catch (err) {

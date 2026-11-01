@@ -4,7 +4,7 @@ import { query } from "../db.js";
 // No comprueba permisos: cada endpoint que la usa lo hace antes.
 const armarCarnet = async (idPaciente) => {
     const result = await query(
-        `SELECT po.id, v.nombre, 'aplicada' AS estado,
+        `SELECT po.id, v.nombre, v.dosis, v.en_calendario, 'aplicada' AS estado,
                 TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion,
                 po.lote, po.marca, po.lugar
          FROM carnet c
@@ -82,6 +82,7 @@ const getCarnetDePaciente = async (req, res) => {
     }
 };
 
+// El paciente carga una dosis ya aplicada en su carnet
 const postDosis = async (req, res) => {
     const { id, rol } = req.usuario;
 
@@ -89,6 +90,7 @@ const postDosis = async (req, res) => {
         return res.status(403).json({ mensaje: "Solo los pacientes tienen carnet" });
     }
 
+    // id_vacuna identifica una dosis concreta (por ejemplo "Quíntuple (pentavalente)" + "2ª dosis (4 meses)")
     const { id_vacuna, fecha_de_aplicacion, lote, marca, lugar } = req.body;
 
     // 1. Todos los campos son obligatorios
@@ -118,9 +120,9 @@ const postDosis = async (req, res) => {
     }
 
     try {
-        // 5. Buscar la vacuna
+        // 5. Buscar la vacuna (con su dosis)
         const vacuna = await query(
-            "SELECT id_vacuna, nombre FROM vacunas WHERE id_vacuna = $1",
+            "SELECT id_vacuna, nombre, dosis, en_calendario FROM vacunas WHERE id_vacuna = $1",
             [Number(id_vacuna)]
         );
         if (vacuna.rows.length === 0) {
@@ -155,6 +157,9 @@ const postDosis = async (req, res) => {
         res.status(201).json({
             id: result.rows[0].id,
             nombre: vacuna.rows[0].nombre,
+            dosis: vacuna.rows[0].dosis,
+            en_calendario: vacuna.rows[0].en_calendario,
+            estado: "aplicada",
             fecha_de_aplicacion,
             lote: loteLimpio,
             marca: marcaLimpia,
