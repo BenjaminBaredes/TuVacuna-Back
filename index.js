@@ -13,6 +13,7 @@ import comorbilidades from "./Controllers/comorbilidades.js";
 import medicos from "./Controllers/medicos.js";
 import solicitudes from "./Controllers/solicitudes.js";
 import perfil from "./Controllers/perfil.js";
+import turnos from "./Controllers/turnos.js";
 
 app.use(cors());
 app.use(express.json());
@@ -50,6 +51,12 @@ app.get("/api/medico/pacientes", verificarToken, medicos.getMisPacientes);
 app.get("/api/medico/solicitudes", verificarToken, solicitudes.getSolicitudesRecibidas);
 app.post("/api/medico/solicitudes/:id/aceptar", verificarToken, solicitudes.aceptarSolicitud);
 app.post("/api/medico/solicitudes/:id/rechazar", verificarToken, solicitudes.rechazarSolicitud);
+
+app.get("/api/turnos", verificarToken, turnos.getTurnos);
+app.post("/api/turnos", verificarToken, turnos.postTurno);
+app.patch("/api/turnos/:id", verificarToken, turnos.putTurno);
+app.delete("/api/turnos/:id", verificarToken, turnos.deleteTurno);
+app.get("/api/calendario/marcados", verificarToken, turnos.getMarcados);
 
 if (!process.env.VERCEL) {
   app.listen(port, () => {
