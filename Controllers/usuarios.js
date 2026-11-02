@@ -7,11 +7,14 @@ const getMe = async (req, res) => {
         let result;
 
         if (rol === "paciente") {
+            // La obra social se busca en el catálogo: se devuelve su id y su nombre
             result = await query(
-                `SELECT id_paciente AS id, nombre, apellido, dni, mail, obra_social, sexo,
-                        TO_CHAR(fecha_de_nacimiento, 'YYYY-MM-DD') AS fecha_de_nacimiento
-                 FROM paciente
-                 WHERE id_paciente = $1`,
+                `SELECT p.id_paciente AS id, p.nombre, p.apellido, p.dni, p.mail,
+                        p.id_obra_social, os.nombre AS obra_social, p.sexo,
+                        TO_CHAR(p.fecha_de_nacimiento, 'YYYY-MM-DD') AS fecha_de_nacimiento
+                 FROM paciente p
+                 LEFT JOIN obra_social os ON os.id_obra_social = p.id_obra_social
+                 WHERE p.id_paciente = $1`,
                 [id]
             );
         } else if (rol === "medico") {

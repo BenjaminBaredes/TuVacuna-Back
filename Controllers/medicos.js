@@ -48,6 +48,9 @@ const buscarMedicos = async (req, res) => {
         res.status(500).json({ mensaje: "Error interno" });
     }
 };
+
+// GET /api/medico/pacientes
+// Lista liviana para la tabla "Mis pacientes": datos básicos, la última vacuna y el estado.
 const getMisPacientes = async (req, res) => {
     const { id, rol } = req.usuario;
 
@@ -56,76 +59,115 @@ const getMisPacientes = async (req, res) => {
     }
 
     try {
-        // 1. Los pacientes que aceptaron a este médico
-        const pacientesResult = await query(
-            `SELECT p.id_paciente, p.nombre, p.apellido, p.dni, p.obra_social,
-                    TO_CHAR(p.fecha_de_nacimiento, 'YYYY-MM-DD') AS fecha_de_nacimiento
+        // LATERAL busca, para cada paciente, su dosis aplicada más reciente
+        const result = await query(
+            `SELECT p.id_paciente, p.nombre, p.apellido, p.dni,
+                    u.id_vacuna AS ultima_id_vacuna, u.nombre AS ultima_nombre,
+                    u.dosis AS ultima_dosis, u.fecha_de_aplicacion AS ultima_fecha
              FROM tiene_medico tm
              JOIN paciente p ON p.id_paciente = tm.id_paciente
+             LEFT JOIN LATERAL (
+                 SELECT v.id_vacuna, v.nombre, v.dosis,
+                        TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion
+                 FROM carnet ca
+                 JOIN posee po ON po.id_carnet = ca.id_carnet
+                 JOIN vacunas v ON v.id_vacuna = po.id_vacuna
+                 WHERE ca.id_paciente = p.id_paciente
+                 ORDER BY po.fecha_de_aplicacion DESC NULLS LAST, po.id DESC
+                 LIMIT 1
+             ) u ON TRUE
              WHERE tm.id_medico = $1 AND tm.estado = 'aceptado'
              ORDER BY p.apellido, p.nombre`,
             [id]
         );
-        const pacientes = pacientesResult.rows;
 
-        if (pacientes.length === 0) {
-            return res.json([]);
-        }
-
-        const ids = pacientes.map((p) => p.id_paciente);
-
-        // 2. Las comorbilidades de todos juntos (una sola consulta)
-        const comorbResult = await query(
-            `SELECT tc.id_paciente, c.id_comorbilidad, c.nombre
-             FROM tiene_comorbilidad tc
-             JOIN comorbilidades c ON c.id_comorbilidad = tc.id_comorbilidad
-             WHERE tc.id_paciente = ANY($1::int[])
-             ORDER BY c.nombre`,
-            [ids]
-        );
-
-        // 3. Las dosis aplicadas de todos juntos (una sola consulta)
-        const dosisResult = await query(
-            `SELECT ca.id_paciente, po.id, v.nombre,
-                    TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion
-             FROM carnet ca
-             JOIN posee po ON po.id_carnet = ca.id_carnet
-             JOIN vacunas v ON v.id_vacuna = po.id_vacuna
-             WHERE ca.id_paciente = ANY($1::int[])
-             ORDER BY po.fecha_de_aplicacion DESC NULLS LAST`,
-            [ids]
-        );
-
-        // 4. Repartir cada cosa en su paciente.
-        //    porId es un índice: con el id del paciente lo encontramos al instante.
-        const porId = {};
-        for (const paciente of pacientes) {
-            paciente.comorbilidades = [];
-            paciente.dosis = [];
-            porId[paciente.id_paciente] = paciente;
-        }
-
-        for (const fila of comorbResult.rows) {
-            porId[fila.id_paciente].comorbilidades.push({
-                id_comorbilidad: fila.id_comorbilidad,
+        res.json(
+            result.rows.map((fila) => ({
+                id_paciente: fila.id_paciente,
                 nombre: fila.nombre,
-            });
-        }
-
-        for (const fila of dosisResult.rows) {
-            porId[fila.id_paciente].dosis.push({
-                id: fila.id,
-                nombre: fila.nombre,
-                estado: "aplicada",
-                fecha_de_aplicacion: fila.fecha_de_aplicacion,
-            });
-        }
-
-        res.json(pacientes);
+                apellido: fila.apellido,
+                dni: fila.dni,
+                ultima_vacuna: fila.ultima_id_vacuna
+                    ? {
+                          id_vacuna: fila.ultima_id_vacuna,
+                          nombre: fila.ultima_nombre,
+                          dosis: fila.ultima_dosis,
+                          fecha_de_aplicacion: fila.ultima_fecha,
+                      }
+                    : null,
+                // Todavía no se calculan las dosis pendientes: null = "Sin evaluar".
+                // Cuando exista el cálculo valdrá "atrasada", "proxima" o "al-dia".
+                estado: null,
+            }))
+        );
     } catch (err) {
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
     }
 };
 
-export default { buscarMedicos, getMisPacientes };
+// GET /api/medico/pacientes/:id
+// Detalle de un paciente que aceptó al médico: perfil, comorbilidades y dosis aplicadas.
+const getPacienteDetalle = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "medico") {
+        return res.status(403).json({ mensaje: "Solo los médicos tienen pacientes" });
+    }
+
+    const idPaciente = Number(req.params.id);
+    if (!Number.isInteger(idPaciente)) {
+        return res.status(400).json({ mensaje: "ID de paciente inválido" });
+    }
+
+    try {
+        // 1. El paciente, solo si aceptó a este médico
+        const pacienteResult = await query(
+            `SELECT p.id_paciente, p.nombre, p.apellido, p.dni,
+                    TO_CHAR(p.fecha_de_nacimiento, 'YYYY-MM-DD') AS fecha_de_nacimiento,
+                    os.nombre AS obra_social
+             FROM tiene_medico tm
+             JOIN paciente p ON p.id_paciente = tm.id_paciente
+             LEFT JOIN obra_social os ON os.id_obra_social = p.id_obra_social
+             WHERE tm.id_medico = $1 AND tm.id_paciente = $2 AND tm.estado = 'aceptado'`,
+            [id, idPaciente]
+        );
+
+        if (pacienteResult.rows.length === 0) {
+            return res.status(404).json({ mensaje: "Paciente no encontrado" });
+        }
+
+        // 2. Sus comorbilidades
+        const comorbResult = await query(
+            `SELECT c.id_comorbilidad, c.nombre
+             FROM tiene_comorbilidad tc
+             JOIN comorbilidades c ON c.id_comorbilidad = tc.id_comorbilidad
+             WHERE tc.id_paciente = $1
+             ORDER BY c.nombre`,
+            [idPaciente]
+        );
+
+        // 3. Sus dosis aplicadas, de la más reciente a la más antigua
+        const dosisResult = await query(
+            `SELECT po.id, v.id_vacuna, v.nombre, v.dosis, 'aplicada' AS estado,
+                    TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion
+             FROM carnet ca
+             JOIN posee po ON po.id_carnet = ca.id_carnet
+             JOIN vacunas v ON v.id_vacuna = po.id_vacuna
+             WHERE ca.id_paciente = $1
+             ORDER BY po.fecha_de_aplicacion DESC NULLS LAST, po.id DESC`,
+            [idPaciente]
+        );
+
+        res.json({
+            ...pacienteResult.rows[0],
+            comorbilidades: comorbResult.rows,
+            dosis: dosisResult.rows,
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+export default { buscarMedicos, getMisPacientes, getPacienteDetalle };

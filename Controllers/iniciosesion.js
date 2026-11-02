@@ -3,10 +3,15 @@ import jwt from "jsonwebtoken";
 import { query } from "../db.js";
 
 const registrarsePaciente = async (req, res) => {
-    const { dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password, comorbilidades } = req.body;
+    const { dni, nombre, apellido, fecha_de_nacimiento, mail, id_obra_social, sexo, password, comorbilidades } = req.body;
 
     if (!dni || !nombre || !apellido || !fecha_de_nacimiento || !mail || !password) {
         return res.status(400).json({ mensaje: "Faltan datos obligatorios" });
+    }
+
+    // La obra social es opcional. Si viene, es el ID de la lista de GET /api/obras-sociales.
+    if (id_obra_social !== undefined && id_obra_social !== null && !Number.isInteger(id_obra_social)) {
+        return res.status(400).json({ mensaje: "id_obra_social debe ser un ID numérico" });
     }
 
     // Las comorbilidades son opcionales. Si vienen, tienen que ser una lista de IDs numéricos.
@@ -28,7 +33,7 @@ const registrarsePaciente = async (req, res) => {
 
         const result = await query(
             `WITH nuevo AS (
-                INSERT INTO paciente (dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, password)
+                INSERT INTO paciente (dni, nombre, apellido, fecha_de_nacimiento, mail, id_obra_social, sexo, password)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id_paciente, nombre
             ),
@@ -42,7 +47,7 @@ const registrarsePaciente = async (req, res) => {
                 FROM nuevo n, unnest($9::int[]) AS c
             )
             SELECT id_paciente, nombre FROM nuevo`,
-            [dni, nombre, apellido, fecha_de_nacimiento, mail, obra_social, sexo, hash, idsComorbilidades]
+            [dni, nombre, apellido, fecha_de_nacimiento, mail, id_obra_social ?? null, sexo, hash, idsComorbilidades]
         );
 
         const paciente = result.rows[0];
@@ -58,8 +63,11 @@ const registrarsePaciente = async (req, res) => {
         if (err.code === "23505") {
             return res.status(409).json({ mensaje: "Ya existe un paciente con ese DNI o mail" });
         }
-        // 23503: se mandó un ID de comorbilidad que no existe
+        // 23503: se mandó un ID que no existe. err.constraint dice cuál de las dos claves falló.
         if (err.code === "23503") {
+            if (err.constraint === "paciente_id_obra_social_fkey") {
+                return res.status(400).json({ mensaje: "La obra social no existe" });
+            }
             return res.status(400).json({ mensaje: "Alguna de las comorbilidades no existe" });
         }
         console.error(err);

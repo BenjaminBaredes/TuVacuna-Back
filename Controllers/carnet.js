@@ -4,7 +4,8 @@ import { query } from "../db.js";
 // No comprueba permisos: cada endpoint que la usa lo hace antes.
 const armarCarnet = async (idPaciente) => {
     const result = await query(
-        `SELECT po.id, v.nombre, v.dosis, v.en_calendario, 'aplicada' AS estado,
+        // id es el de la fila del carnet; id_vacuna es el de la dosis (el que pide POST /api/turnos)
+        `SELECT po.id, v.id_vacuna, v.nombre, v.dosis, v.en_calendario, 'aplicada' AS estado,
                 TO_CHAR(po.fecha_de_aplicacion, 'YYYY-MM-DD') AS fecha_de_aplicacion,
                 po.lote, po.marca, po.lugar
          FROM carnet c
@@ -156,6 +157,7 @@ const postDosis = async (req, res) => {
         // 8. Devolver la dosis con el mismo formato que GET /api/carnet
         res.status(201).json({
             id: result.rows[0].id,
+            id_vacuna: vacuna.rows[0].id_vacuna,
             nombre: vacuna.rows[0].nombre,
             dosis: vacuna.rows[0].dosis,
             en_calendario: vacuna.rows[0].en_calendario,
