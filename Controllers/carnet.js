@@ -1,6 +1,6 @@
 import { query } from "../db.js";
 import { tieneAcceso } from "./familia.js";
-import { calcularPendientes } from "./calculoVacunas.js";
+import { calcularPendientes } from "./Calculovacunas.js";
 
 // Función auxiliar: arma el carnet de un paciente.
 // Primero la sección "PENDIENTES" (lo que le falta, calculado con el Calendario Nacional),

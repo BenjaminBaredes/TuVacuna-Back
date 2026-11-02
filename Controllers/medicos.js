@@ -1,5 +1,5 @@
 import { query } from "../db.js";
-import { calcularPendientes, estadoGeneral } from "./calculoVacunas.js";
+import { calcularPendientes, estadoGeneral } from "./Calculovacunas.js";
 
 const buscarMedicos = async (req, res) => {
     const { rol } = req.usuario;

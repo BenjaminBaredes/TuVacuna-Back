@@ -1,6 +1,6 @@
 import { query } from "../db.js";
 import { tieneAcceso, idsVisibles } from "./familia.js";
-import { calcularPendientes } from "./calculoVacunas.js";
+import { calcularPendientes } from "./Calculovacunas.js";
 
 // Las fechas se calculan con la hora de Buenos Aires: Vercel corre en UTC,
 // y sin esto, a la noche "hoy" ya sería mañana.
