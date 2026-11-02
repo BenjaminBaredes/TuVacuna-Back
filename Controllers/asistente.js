@@ -94,59 +94,75 @@ const preguntar = async (req, res) => {
         return res.status(500).json({ mensaje: "El asistente no está configurado" });
     }
 
-    try {
-        // Solo el paciente tiene carnet y datos de salud para sumar al contexto
-        let carnet = null;
-        let datos = null;
-        if (rol === "paciente") {
-            [carnet, datos] = await Promise.all([carnetDelPaciente(id), datosDelPaciente(id)]);
-        }
-
-        const historial = mensajes
-            .slice(-MAX_MENSAJES_HISTORIAL)
-            .map((m) => ({ role: m.role, content: m.content.trim() }));
-
-        const control = new AbortController();
-        const temporizador = setTimeout(() => control.abort(), TIEMPO_MAXIMO_MS);
-
-        let respuestaApi;
+    // 1. Datos del paciente para el contexto. Si fallan, el bot responde igual, sin personalizar.
+    let carnet = null;
+    let datos = null;
+    if (rol === "paciente") {
         try {
-            respuestaApi = await fetch(URL_API, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${process.env.TIC_API_KEY}`,
-                },
-                body: JSON.stringify({
-                    model: MODELO,
-                    messages: [{ role: "system", content: armarSystemPrompt(carnet, datos) }, ...historial],
-                    temperature: 0.2, // igual que el original: respuestas precisas, poco "creativas"
-                }),
-                signal: control.signal,
-            });
-        } finally {
-            clearTimeout(temporizador);
+            [carnet, datos] = await Promise.all([carnetDelPaciente(id), datosDelPaciente(id)]);
+        } catch (err) {
+            console.error("Asistente: no se pudieron leer los datos del paciente:", err);
         }
+    }
 
-        if (!respuestaApi.ok) {
-            console.error("Error de la IA de ORT:", respuestaApi.status, await respuestaApi.text());
-            return res.status(502).json({ mensaje: "El asistente no está disponible en este momento" });
-        }
+    const historial = mensajes
+        .slice(-MAX_MENSAJES_HISTORIAL)
+        .map((m) => ({ role: m.role, content: m.content.trim() }));
 
-        const datosApi = await respuestaApi.json();
-        const respuesta = datosApi?.choices?.[0]?.message?.content;
-        if (!respuesta) {
-            return res.status(502).json({ mensaje: "El asistente no devolvió una respuesta" });
-        }
+    // 2. Pedido a la IA de ORT
+    const control = new AbortController();
+    const temporizador = setTimeout(() => control.abort(), TIEMPO_MAXIMO_MS);
 
-        res.json({ respuesta });
+    let respuestaApi;
+    try {
+        respuestaApi = await fetch(URL_API, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${process.env.TIC_API_KEY.trim()}`,
+            },
+            body: JSON.stringify({
+                model: MODELO,
+                messages: [{ role: "system", content: armarSystemPrompt(carnet, datos) }, ...historial],
+                temperature: 0.2, // igual que el original: respuestas precisas, poco "creativas"
+            }),
+            signal: control.signal,
+        });
     } catch (err) {
         if (err.name === "AbortError") {
             return res.status(504).json({ mensaje: "El asistente tardó demasiado. Probá de nuevo." });
         }
-        console.error(err);
-        res.status(500).json({ mensaje: "Error interno" });
+        // No se pudo ni conectar: servidor caído, bloqueado fuera de la red de ORT, certificado, etc.
+        console.error("Asistente: no se pudo conectar con la IA de ORT:", err.message, err.cause ?? "");
+        return res.status(502).json({ mensaje: "No se pudo conectar con la IA de ORT" });
+    } finally {
+        clearTimeout(temporizador);
     }
+
+    // 3. Leer la respuesta
+    const texto = await respuestaApi.text().catch(() => "");
+
+    if (!respuestaApi.ok) {
+        console.error("Error de la IA de ORT:", respuestaApi.status, texto.slice(0, 500));
+        return res.status(502).json({ mensaje: `El asistente no está disponible en este momento (ORT respondió ${respuestaApi.status})` });
+    }
+
+    let datosApi;
+    try {
+        datosApi = JSON.parse(texto);
+    } catch {
+        // Por ejemplo, una página de inicio de sesión en lugar de JSON
+        console.error("Asistente: la IA de ORT no devolvió JSON:", texto.slice(0, 500));
+        return res.status(502).json({ mensaje: "La IA de ORT devolvió una respuesta inesperada" });
+    }
+
+    const respuesta = datosApi?.choices?.[0]?.message?.content;
+    if (!respuesta) {
+        console.error("Asistente: respuesta sin texto:", texto.slice(0, 500));
+        return res.status(502).json({ mensaje: "El asistente no devolvió una respuesta" });
+    }
+
+    res.json({ respuesta });
 };
 
 export default { preguntar };
