@@ -17,7 +17,8 @@ import turnos from "./Controllers/turnos.js";
 import centros from "./Controllers/centros.js";
 import obrasSociales from "./Controllers/obrassociales.js";
 import familia from "./Controllers/familia.js";
-
+import asistente from "./Controllers/asistente.js";
+import ocr from "./Controllers/ocr.js";
 
 app.use(cors());
 app.use(express.json());
@@ -76,6 +77,11 @@ app.post("/api/familia/solicitudes/:id/aceptar", verificarToken, familia.aceptar
 app.post("/api/familia/solicitudes/:id/rechazar", verificarToken, familia.rechazarSolicitud);
 app.get("/api/familia/acceso", verificarToken, familia.getConAcceso);
 app.delete("/api/familia/acceso/:id", verificarToken, familia.quitarAcceso);
+
+app.post("/api/asistente", verificarToken, asistente.preguntar);
+
+app.post("/api/ocr/lecturas", verificarToken, express.raw({ type: ["image/jpeg", "image/png", "image/webp"], limit: "4mb" }), ocr.iniciarLectura);
+app.get("/api/ocr/lecturas/:id", verificarToken, ocr.estadoLectura);
 
 if (!process.env.VERCEL) {
   app.listen(port, () => {
