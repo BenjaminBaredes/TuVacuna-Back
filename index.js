@@ -54,7 +54,7 @@ app.post("/api/medico/solicitudes/:id/rechazar", verificarToken, solicitudes.rec
 
 app.get("/api/turnos", verificarToken, turnos.getTurnos);
 app.post("/api/turnos", verificarToken, turnos.postTurno);
-app.patch("/api/turnos/:id", verificarToken, turnos.putTurno);
+app.put("/api/turnos/:id", verificarToken, turnos.putTurno);
 app.delete("/api/turnos/:id", verificarToken, turnos.deleteTurno);
 app.get("/api/calendario/marcados", verificarToken, turnos.getMarcados);
 
