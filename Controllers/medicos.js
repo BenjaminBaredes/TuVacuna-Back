@@ -1,4 +1,5 @@
 import { query } from "../db.js";
+import { calcularPendientes, estadoGeneral } from "./calculoVacunas.js";
 
 const buscarMedicos = async (req, res) => {
     const { rol } = req.usuario;
@@ -62,6 +63,7 @@ const getMisPacientes = async (req, res) => {
         // LATERAL busca, para cada paciente, su dosis aplicada más reciente
         const result = await query(
             `SELECT p.id_paciente, p.nombre, p.apellido, p.dni,
+                    (p.fecha_de_nacimiento IS NOT NULL) AS tiene_nacimiento,
                     u.id_vacuna AS ultima_id_vacuna, u.nombre AS ultima_nombre,
                     u.dosis AS ultima_dosis, u.fecha_de_aplicacion AS ultima_fecha
              FROM tiene_medico tm
@@ -81,8 +83,15 @@ const getMisPacientes = async (req, res) => {
             [id]
         );
 
+        // Estado de cada paciente según el cálculo con el Calendario Nacional
+        const estados = await Promise.all(
+            result.rows.map(async (fila) =>
+                fila.tiene_nacimiento ? estadoGeneral(await calcularPendientes(fila.id_paciente)) : null
+            )
+        );
+
         res.json(
-            result.rows.map((fila) => ({
+            result.rows.map((fila, i) => ({
                 id_paciente: fila.id_paciente,
                 nombre: fila.nombre,
                 apellido: fila.apellido,
@@ -95,9 +104,11 @@ const getMisPacientes = async (req, res) => {
                           fecha_de_aplicacion: fila.ultima_fecha,
                       }
                     : null,
-                // Todavía no se calculan las dosis pendientes: null = "Sin evaluar".
-                // Cuando exista el cálculo valdrá "atrasada", "proxima" o "al-dia".
-                estado: null,
+                // "atrasada": alguna dosis del calendario atrasada
+                // "proxima":  le toca una dosis del calendario en los próximos 30 días
+                // "al-dia":   ninguna de las dos
+                // null:       sin fecha de nacimiento cargada, no se puede evaluar
+                estado: estados[i],
             }))
         );
     } catch (err) {

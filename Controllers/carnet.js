@@ -1,7 +1,10 @@
 import { query } from "../db.js";
 import { tieneAcceso } from "./familia.js";
+import { calcularPendientes } from "./calculoVacunas.js";
 
-// Función auxiliar: arma el carnet de un paciente, agrupado por año.
+// Función auxiliar: arma el carnet de un paciente.
+// Primero la sección "PENDIENTES" (lo que le falta, calculado con el Calendario Nacional),
+// después las dosis aplicadas agrupadas por año.
 // No comprueba permisos: cada endpoint que la usa lo hace antes.
 const armarCarnet = async (idPaciente) => {
     const result = await query(
@@ -18,6 +21,28 @@ const armarCarnet = async (idPaciente) => {
     );
 
     const secciones = [];
+
+    // Pendientes, atrasadas y recomendadas. Tienen id null porque todavía no están en el carnet.
+    const pendientes = await calcularPendientes(idPaciente);
+    if (pendientes.length > 0) {
+        secciones.push({
+            grupo: "PENDIENTES",
+            esPendiente: true,
+            dosis: pendientes.map((p) => ({
+                id: null,
+                id_vacuna: p.id_vacuna,
+                nombre: p.nombre,
+                dosis: p.dosis,
+                en_calendario: p.en_calendario,
+                estado: p.estado,
+                fecha_recomendada: p.fecha_recomendada,
+                fecha_de_aplicacion: null,
+                lote: null,
+                marca: null,
+                lugar: null,
+            })),
+        });
+    }
 
     for (const fila of result.rows) {
         let anio = "Sin fecha";
@@ -214,4 +239,4 @@ const postDosisFamiliar = async (req, res) => {
     return guardarDosis(idPaciente, req.body, res);
 };
 
-export default { getCarnet, getCarnetDePaciente, postDosis, postDosisFamiliar};
+export default { getCarnet, getCarnetDePaciente, postDosis, postDosisFamiliar };

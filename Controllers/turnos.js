@@ -1,5 +1,6 @@
 import { query } from "../db.js";
 import { tieneAcceso, idsVisibles } from "./familia.js";
+import { calcularPendientes } from "./calculoVacunas.js";
 
 // Las fechas se calculan con la hora de Buenos Aires: Vercel corre en UTC,
 // y sin esto, a la noche "hoy" ya sería mañana.
@@ -166,8 +167,7 @@ const getMarcados = async (req, res) => {
     const hasta = primerDia(anio, mes + 2);
 
     try {
-        // Por ahora salen "turno" y "hoy". "atrasado" y "recomendado" llegan con el cálculo de vacunas.
-        // Incluye los turnos de los familiares a los que el paciente tiene acceso.
+        // Incluye los turnos y las vacunas calculadas de los familiares a los que el paciente tiene acceso.
         const ids = await idsVisibles(id);
         const result = await query(
             `SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, 'turno' AS tipo
@@ -179,6 +179,20 @@ const getMarcados = async (req, res) => {
         const marcas = result.rows;
         if (hoy >= desde && hoy < hasta) {
             marcas.push({ fecha: hoy, tipo: "hoy" });
+        }
+
+        // Vacunas calculadas, en su fecha recomendada:
+        // atrasada -> "atrasado"; pendiente o recomendada -> "recomendado"
+        const yaMarcado = new Set(marcas.map((m) => `${m.fecha}|${m.tipo}`));
+        const calculadas = await Promise.all(ids.map((idPaciente) => calcularPendientes(idPaciente)));
+        for (const p of calculadas.flat()) {
+            if (p.fecha_recomendada < desde || p.fecha_recomendada >= hasta) continue;
+            const tipo = p.estado === "atrasada" ? "atrasado" : "recomendado";
+            const clave = `${p.fecha_recomendada}|${tipo}`;
+            if (!yaMarcado.has(clave)) {
+                yaMarcado.add(clave);
+                marcas.push({ fecha: p.fecha_recomendada, tipo });
+            }
         }
 
         marcas.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.tipo.localeCompare(b.tipo));
