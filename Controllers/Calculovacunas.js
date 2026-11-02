@@ -1,7 +1,7 @@
 import { query } from "../db.js";
 
 // ============================================================
-// Cálculo de vacunas pendientes, atrasadas y recomendadas.
+// Cálculo de vacunas pendientes, atrasadas y recomendadas..
 //
 // Estados (definidos por el equipo):
 //   pendiente   le corresponde por el Calendario Nacional (por edad o comorbilidad)
