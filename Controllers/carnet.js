@@ -1,4 +1,5 @@
 import { query } from "../db.js";
+import { tieneAcceso } from "./familia.js";
 
 // Función auxiliar: arma el carnet de un paciente, agrupado por año.
 // No comprueba permisos: cada endpoint que la usa lo hace antes.
@@ -36,63 +37,11 @@ const armarCarnet = async (idPaciente) => {
     return secciones;
 };
 
-// El paciente ve su propio carnet
-const getCarnet = async (req, res) => {
-    const { id, rol } = req.usuario;
-
-    if (rol !== "paciente") {
-        return res.status(403).json({ mensaje: "Solo los pacientes tienen carnet" });
-    }
-
-    try {
-        res.json(await armarCarnet(id));
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ mensaje: "Error interno" });
-    }
-};
-
-// El médico ve el carnet de un paciente que ya aceptó su solicitud
-const getCarnetDePaciente = async (req, res) => {
-    const { id, rol } = req.usuario;
-
-    if (rol !== "medico") {
-        return res.status(403).json({ mensaje: "No autorizado" });
-    }
-
-    const idPaciente = Number(req.params.idPaciente);
-    if (!Number.isInteger(idPaciente)) {
-        return res.status(400).json({ mensaje: "ID de paciente inválido" });
-    }
-
-    try {
-        const vinculo = await query(
-            `SELECT 1 FROM tiene_medico
-             WHERE id_paciente = $1 AND id_medico = $2 AND estado = 'aceptado'`,
-            [idPaciente, id]
-        );
-
-        if (vinculo.rows.length === 0) {
-            return res.status(404).json({ mensaje: "Paciente no encontrado" });
-        }
-
-        res.json(await armarCarnet(idPaciente));
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ mensaje: "Error interno" });
-    }
-};
-
-// El paciente carga una dosis ya aplicada en su carnet
-const postDosis = async (req, res) => {
-    const { id, rol } = req.usuario;
-
-    if (rol !== "paciente") {
-        return res.status(403).json({ mensaje: "Solo los pacientes tienen carnet" });
-    }
-
+// Función auxiliar: valida y guarda una dosis en el carnet de idPaciente.
+// No comprueba permisos: cada endpoint que la usa lo hace antes.
+const guardarDosis = async (idPaciente, body, res) => {
     // id_vacuna identifica una dosis concreta (por ejemplo "Quíntuple (pentavalente)" + "2ª dosis (4 meses)")
-    const { id_vacuna, fecha_de_aplicacion, lote, marca, lugar } = req.body;
+    const { id_vacuna, fecha_de_aplicacion, lote, marca, lugar } = body ?? {};
 
     // 1. Todos los campos son obligatorios
     if (!id_vacuna || !fecha_de_aplicacion || !lote || !marca || !lugar) {
@@ -133,7 +82,7 @@ const postDosis = async (req, res) => {
         // 6. Buscar el carnet del paciente
         const carnet = await query(
             "SELECT id_carnet FROM carnet WHERE id_paciente = $1",
-            [id]
+            [idPaciente]
         );
         if (carnet.rows.length === 0) {
             return res.status(404).json({ mensaje: "El paciente no tiene carnet" });
@@ -177,4 +126,92 @@ const postDosis = async (req, res) => {
     }
 };
 
-export default { getCarnet, getCarnetDePaciente, postDosis };
+// GET /api/carnet — el paciente ve su propio carnet
+const getCarnet = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "paciente") {
+        return res.status(403).json({ mensaje: "Solo los pacientes tienen carnet" });
+    }
+
+    try {
+        res.json(await armarCarnet(id));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+// GET /api/carnet/:idPaciente — el carnet de otra persona. Pueden verlo:
+//   - un médico, si el paciente aceptó su solicitud
+//   - un paciente, si esa persona aceptó su solicitud de familia
+const getCarnetDePaciente = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    const idPaciente = Number(req.params.idPaciente);
+    if (!Number.isInteger(idPaciente)) {
+        return res.status(400).json({ mensaje: "ID de paciente inválido" });
+    }
+
+    try {
+        let permitido = false;
+
+        if (rol === "medico") {
+            const vinculo = await query(
+                `SELECT 1 FROM tiene_medico
+                 WHERE id_paciente = $1 AND id_medico = $2 AND estado = 'aceptado'`,
+                [idPaciente, id]
+            );
+            permitido = vinculo.rows.length > 0;
+        } else if (rol === "paciente") {
+            permitido = await tieneAcceso(id, idPaciente);
+        }
+
+        if (!permitido) {
+            return res.status(404).json({ mensaje: "Paciente no encontrado" });
+        }
+
+        res.json(await armarCarnet(idPaciente));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ mensaje: "Error interno" });
+    }
+};
+
+// POST /api/carnet/dosis — el paciente carga una dosis ya aplicada en su carnet
+const postDosis = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "paciente") {
+        return res.status(403).json({ mensaje: "Solo los pacientes tienen carnet" });
+    }
+
+    return guardarDosis(id, req.body, res);
+};
+
+// POST /api/carnet/:idPaciente/dosis — el paciente carga una dosis en el carnet de un familiar
+const postDosisFamiliar = async (req, res) => {
+    const { id, rol } = req.usuario;
+
+    if (rol !== "paciente") {
+        return res.status(403).json({ mensaje: "Solo los pacientes pueden cargar dosis" });
+    }
+
+    const idPaciente = Number(req.params.idPaciente);
+    if (!Number.isInteger(idPaciente)) {
+        return res.status(400).json({ mensaje: "ID de paciente inválido" });
+    }
+
+    try {
+        if (!(await tieneAcceso(id, idPaciente))) {
+            return res.status(404).json({ mensaje: "Paciente no encontrado" });
+        }
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ mensaje: "Error interno" });
+    }
+
+    return guardarDosis(idPaciente, req.body, res);
+};
+
+export default { getCarnet, getCarnetDePaciente, postDosis, postDosisFamiliar};

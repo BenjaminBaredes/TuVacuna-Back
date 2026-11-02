@@ -16,6 +16,8 @@ import perfil from "./Controllers/perfil.js";
 import turnos from "./Controllers/turnos.js";
 import centros from "./Controllers/centros.js";
 import obrasSociales from "./Controllers/obrassociales.js";
+import familia from "./Controllers/familia.js";
+
 
 app.use(cors());
 app.use(express.json());
@@ -35,6 +37,7 @@ app.get("/api/usuario/me", verificarToken, usuarios.getMe);
 app.get("/api/carnet", verificarToken, carnet.getCarnet);
 app.get("/api/carnet/:idPaciente", verificarToken, carnet.getCarnetDePaciente);
 app.post("/api/carnet/dosis", verificarToken, carnet.postDosis);
+app.post("/api/carnet/:idPaciente/dosis", verificarToken, carnet.postDosisFamiliar);
 
 app.get("/api/vacunas", verificarToken, vacunas.getVacunas);
 
@@ -64,6 +67,15 @@ app.get("/api/calendario/marcados", verificarToken, turnos.getMarcados);
 app.get("/api/obras-sociales", obrasSociales.getObrasSociales);
 
 app.get("/api/centros", verificarToken, centros.getCentros);
+
+app.get("/api/familia", verificarToken, familia.getFamilia);
+app.post("/api/familia/solicitudes", verificarToken, familia.enviarSolicitud);
+app.get("/api/familia/solicitudes/recibidas", verificarToken, familia.getSolicitudesRecibidas);
+app.get("/api/familia/solicitudes/enviadas", verificarToken, familia.getSolicitudesEnviadas);
+app.post("/api/familia/solicitudes/:id/aceptar", verificarToken, familia.aceptarSolicitud);
+app.post("/api/familia/solicitudes/:id/rechazar", verificarToken, familia.rechazarSolicitud);
+app.get("/api/familia/acceso", verificarToken, familia.getConAcceso);
+app.delete("/api/familia/acceso/:id", verificarToken, familia.quitarAcceso);
 
 if (!process.env.VERCEL) {
   app.listen(port, () => {

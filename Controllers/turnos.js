@@ -1,4 +1,5 @@
 import { query } from "../db.js";
+import { tieneAcceso, idsVisibles } from "./familia.js";
 
 // Las fechas se calculan con la hora de Buenos Aires: Vercel corre en UTC,
 // y sin esto, a la noche "hoy" ya sería mañana.
@@ -49,13 +50,30 @@ const SELECT_TURNO = `
            EXTRACT(YEAR FROM ca.fecha)::int AS anio,
            TO_CHAR(ca.hora, 'HH24:MI') AS hora,
            ca.lugar, 'pendiente' AS estado,
-           v.id_vacuna, v.nombre, v.dosis, v.en_calendario
+           v.id_vacuna, v.nombre, v.dosis, v.en_calendario,
+           p.id_paciente, p.nombre AS paciente_nombre, p.apellido AS paciente_apellido
     FROM calendario ca
-    JOIN vacunas v ON v.id_vacuna = ca.id_vacuna`;
+    JOIN vacunas v ON v.id_vacuna = ca.id_vacuna
+    JOIN paciente p ON p.id_paciente = ca.id_paciente`;
 
-const buscarTurno = async (idTurno) => {
+// Arma la respuesta de un turno. "paciente" dice de quién es: el calendario
+// junta los turnos propios con los de los familiares, y esVos marca los propios.
+const formatear = (fila, idUsuario) => {
+    const { id_paciente, paciente_nombre, paciente_apellido, ...turno } = fila;
+    return {
+        ...turno,
+        paciente: {
+            id_paciente,
+            nombre: paciente_nombre,
+            apellido: paciente_apellido,
+            esVos: id_paciente === idUsuario,
+        },
+    };
+};
+
+const buscarTurno = async (idTurno, idUsuario) => {
     const result = await query(`${SELECT_TURNO} WHERE ca.id_calendario = $1`, [idTurno]);
-    return result.rows[0];
+    return formatear(result.rows[0], idUsuario);
 };
 
 // Valida hora y lugar, que son opcionales. Devuelve el valor a guardar o un error.
@@ -98,6 +116,7 @@ const existeVacuna = async (idVacuna) => {
 
 // GET /api/turnos?mes=&anio=
 // Los turnos del mes pedido, o de todo el año si no viene mes.
+// Trae los propios y los de los familiares a los que el paciente tiene acceso.
 const getTurnos = async (req, res) => {
     const { id, rol } = req.usuario;
     if (rol !== "paciente") {
@@ -113,13 +132,14 @@ const getTurnos = async (req, res) => {
     const hasta = mes === null ? primerDia(anio + 1, 0) : primerDia(anio, mes + 1);
 
     try {
+        const ids = await idsVisibles(id);
         const result = await query(
             `${SELECT_TURNO}
-             WHERE ca.id_paciente = $1 AND ca.fecha >= $2 AND ca.fecha < $3
+             WHERE ca.id_paciente = ANY($1::int[]) AND ca.fecha >= $2 AND ca.fecha < $3
              ORDER BY ca.fecha, ca.hora NULLS LAST, ca.id_calendario`,
-            [id, desde, hasta]
+            [ids, desde, hasta]
         );
-        res.json(result.rows);
+        res.json(result.rows.map((fila) => formatear(fila, id)));
     } catch (err) {
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
@@ -147,11 +167,13 @@ const getMarcados = async (req, res) => {
 
     try {
         // Por ahora salen "turno" y "hoy". "atrasado" y "recomendado" llegan con el cálculo de vacunas.
+        // Incluye los turnos de los familiares a los que el paciente tiene acceso.
+        const ids = await idsVisibles(id);
         const result = await query(
             `SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, 'turno' AS tipo
              FROM calendario
-             WHERE id_paciente = $1 AND fecha >= $2 AND fecha < $3`,
-            [id, desde, hasta]
+             WHERE id_paciente = ANY($1::int[]) AND fecha >= $2 AND fecha < $3`,
+            [ids, desde, hasta]
         );
 
         const marcas = result.rows;
@@ -176,7 +198,9 @@ const getMarcados = async (req, res) => {
 };
 
 // POST /api/turnos
-// body: { id_vacuna, fecha, hora?, lugar? }
+// body: { id_vacuna, fecha, hora?, lugar?, id_familiar? }
+// Sin id_familiar, el turno es propio. Con id_familiar, es para ese familiar
+// (tiene que haber aceptado la solicitud).
 const postTurno = async (req, res) => {
     const { id, rol } = req.usuario;
     if (rol !== "paciente") {
@@ -186,7 +210,20 @@ const postTurno = async (req, res) => {
     const turno = validarTurno(req.body);
     if (turno.error) return res.status(400).json({ mensaje: turno.error });
 
+    const { id_familiar } = req.body ?? {};
+    let idPaciente = id;
+    if (id_familiar !== undefined && id_familiar !== null && id_familiar !== id) {
+        if (!Number.isInteger(id_familiar)) {
+            return res.status(400).json({ mensaje: "id_familiar debe ser un ID numérico" });
+        }
+        idPaciente = id_familiar;
+    }
+
     try {
+        if (idPaciente !== id && !(await tieneAcceso(id, idPaciente))) {
+            return res.status(404).json({ mensaje: "Familiar no encontrado" });
+        }
+
         if (!(await existeVacuna(turno.id_vacuna))) {
             return res.status(404).json({ mensaje: "Vacuna no encontrada" });
         }
@@ -195,10 +232,10 @@ const postTurno = async (req, res) => {
             `INSERT INTO calendario (id_paciente, id_vacuna, fecha, hora, lugar)
              VALUES ($1, $2, $3, $4, $5)
              RETURNING id_calendario`,
-            [id, turno.id_vacuna, turno.fecha, turno.hora, turno.lugar]
+            [idPaciente, turno.id_vacuna, turno.fecha, turno.hora, turno.lugar]
         );
 
-        res.status(201).json(await buscarTurno(result.rows[0].id_calendario));
+        res.status(201).json(await buscarTurno(result.rows[0].id_calendario, id));
     } catch (err) {
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
@@ -208,6 +245,7 @@ const postTurno = async (req, res) => {
 // PUT /api/turnos/:id
 // body: el turno completo, igual que en el POST: { id_vacuna, fecha, hora?, lugar? }
 // Reemplaza todo: si no viene hora o lugar, quedan vacíos.
+// Sirve para turnos propios y de familiares con acceso. No cambia de quién es el turno.
 const putTurno = async (req, res) => {
     const { id, rol } = req.usuario;
     if (rol !== "paciente") {
@@ -227,26 +265,27 @@ const putTurno = async (req, res) => {
             return res.status(404).json({ mensaje: "Vacuna no encontrada" });
         }
 
+        const ids = await idsVisibles(id);
         const result = await query(
             `UPDATE calendario
              SET id_vacuna = $1, fecha = $2, hora = $3, lugar = $4
-             WHERE id_calendario = $5 AND id_paciente = $6
+             WHERE id_calendario = $5 AND id_paciente = ANY($6::int[])
              RETURNING id_calendario`,
-            [turno.id_vacuna, turno.fecha, turno.hora, turno.lugar, idTurno, id]
+            [turno.id_vacuna, turno.fecha, turno.hora, turno.lugar, idTurno, ids]
         );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ mensaje: "Turno no encontrado" });
         }
 
-        res.json(await buscarTurno(idTurno));
+        res.json(await buscarTurno(idTurno, id));
     } catch (err) {
         console.error(err);
         res.status(500).json({ mensaje: "Error interno" });
     }
 };
 
-// DELETE /api/turnos/:id — cancelar un turno lo borra
+// DELETE /api/turnos/:id — cancelar un turno lo borra (propio o de un familiar con acceso)
 const deleteTurno = async (req, res) => {
     const { id, rol } = req.usuario;
     if (rol !== "paciente") {
@@ -259,9 +298,10 @@ const deleteTurno = async (req, res) => {
     }
 
     try {
+        const ids = await idsVisibles(id);
         const result = await query(
-            "DELETE FROM calendario WHERE id_calendario = $1 AND id_paciente = $2 RETURNING id_calendario",
-            [idTurno, id]
+            "DELETE FROM calendario WHERE id_calendario = $1 AND id_paciente = ANY($2::int[]) RETURNING id_calendario",
+            [idTurno, ids]
         );
 
         if (result.rows.length === 0) {
